@@ -1,7 +1,7 @@
 //var net = require('net');
 //var MSG_NONE = 0;
 
-var MessageType = Object.freeze ({MSG_NONE:0, MSG_RECT:101, MSG_TEXTBOX:110, MSG_TEXT:150, MSG_PANELDEF:151,
+var MessageType = Object.freeze ({MSG_NONE:0, MSG_RECT:101, MSG_TEXTBOX:110, MSG_TIMER:111, MSG_TEXT:150, MSG_PANELDEF:151,
                                  MSG_GENERIC_CMD:160, MSG_TEXTBOX_CMD:161, MSG_TIMER_CMD:162, MSG_DISPLAY_CMD:163});
 var ObjectCategory = Object.freeze ({OC_UNSPECIFIED:0, OC_CONTROL:1, OC_SHAPE:2, OC_DATA:3, OC_COMMAND:4});
 var ProtocolCode = Object.freeze (
@@ -9,6 +9,10 @@ var ProtocolCode = Object.freeze (
 START_NUMBER_POS:0x07,START_NUMBER_NEG:0x08,FIRST_LEGAL_CHAR:0x09,MAGIC_NUMBER:0x87});
 var DisplayAttribute = Object.freeze ({DA_NONE:0,DA_NORMAL:1,DA_HIDDEN:2,DA_FLASHING:3,DA_TBD_1:10});
 var GenericScope = Object.freeze ({GS_NONE:-1,GS_APPLIES_TO_ALL:-2});
+
+var TimerDisplayMode = Object.freeze ({DM_NONE:0, DM_HHMMSS:1, DM_MMSS:2});
+var TimerPrecision = Object.freeze ({TP_NONE:0, TP_SECONDS:1, TP_TENTHS:2, TP_HUNDREDTHS:3});
+
 
 
 var XYInfo = function (a_x, a_y, a_x_size, a_y_size) {
@@ -344,6 +348,65 @@ DLTextbox.prototype.InitFromJson = function (json, parent_id) {
 };
 
 
+function DLTimer () {
+    DLBase.call(this);
+    this.type = MessageType.MSG_TIMER;
+    this.xy = new XYInfo;
+    this.fg_color = new DLColor;
+    this.bg_color = new DLColor;
+    this.border_color = new DLColor;
+    this.border_width = 1;
+    this.text_xy = new XYInfo;
+    this.char_buffer_size = 200;
+    this.preferred_font = "";
+}
+
+DLTimer.prototype = Object.create(DLBase.prototype);
+DLTimer.prototype.constructor = DLTimer;
+//override BuildMessageContents
+DLTimer.prototype.BuildMessageContents = function(msg_buffer, pos) {
+    //xy
+    pos = this.EncodeInt (this.xy.x, msg_buffer, pos);
+    pos = this.EncodeInt (this.xy.y, msg_buffer, pos);
+    pos = this.EncodeInt (this.xy.x_size, msg_buffer, pos);
+    pos = this.EncodeInt (this.xy.y_size, msg_buffer, pos);
+    pos = this.EncodeInt (this.fg_color.value, msg_buffer, pos);
+    pos = this.EncodeInt (this.bg_color.value, msg_buffer, pos);
+    pos = this.EncodeInt (this.border_color.value, msg_buffer, pos);
+    pos = this.EncodeInt (this.border_width, msg_buffer, pos);
+    pos = this.EncodeInt (this.text_xy.x, msg_buffer, pos);
+    pos = this.EncodeInt (this.text_xy.y, msg_buffer, pos);
+    pos = this.EncodeInt (this.text_xy.x_size, msg_buffer, pos);
+    pos = this.EncodeInt (this.text_xy.y_size, msg_buffer, pos);
+    pos = this.EncodeInt (this.char_buffer_size, msg_buffer, pos);
+    pos = this.EncodeString (this.preferred_font, msg_buffer, pos);
+    return pos;
+};
+
+DLTimer.prototype.InitFromJson = function (json, parent_id) {
+    this.layer = json.layer;
+    this.control = json.control_id;
+    if (parent_id === undefined)
+        this.parent_control = -1;
+    else
+        this.parent_control = parent_id;
+    this.control_name = json.control_name;
+    this.xy = new XYInfo (json.xy.x, json.xy.y, json.xy.x_size, json.xy.y_size);
+    this.fg_color.SetValueHex (json.fg_color.value_hex);
+    this.bg_color.SetValueHex (json.bg_color.value_hex);
+    this.border_color.SetValueHex (json.border_color.value_hex);
+    this.border_width = json.border_width;
+    if (json.xy_text === undefined) {
+        this.text_xy = new XYInfo();
+    }
+    else {
+        this.text_xy = new XYInfo (json.xy_text.x, json.xy_text.y, json.xy_text.x_size, json.xy_text.y_size);
+    }
+    this.preferred_font = json.preferred_font;
+};
+
+
+
 //var MSG_TEXTBOX_CMD = 161;
 var ScrollCommand = Object.freeze ({SCROLL_NONE:-1, SCROLL_AUTO_BY_LINE:0, SCROLL_AUTO_BY_PAGE:1, SCROLL_MANUAL:2,
 		SCROLL_PAUSE:10, SCROLL_RESUME:11, SCROLL_UP:12, SCROLL_DOWN:13,
@@ -491,9 +554,38 @@ DLDisplayCmd.prototype.BuildMessageContents = function(msg_buffer, pos) {
 }
 
 //var MSG_TEXTBOX_CMD = 161;
+
 //var MSG_TIMER_CMD = 162;
+function DLTimerCmd () {
+    DLBase.call(this);
+    this.type = MessageType.MSG_TIMER_CMD;
+    this.timer_request = 0;
+    this.timer_ticks = -1;
+    this.display_mode = TimerDisplayMode.DM_NONE;
+    this.timer_precision = TimerPrecision.TP_NONE;
+    this.fraction_threshold = -1;
+}
 
-
+DLTimerCmd.prototype = Object.create(DLBase.prototype);
+DLTimerCmd.prototype.constructor = DLTimerCmd;
+//override BuildMessageContents
+DLTimerCmd.prototype.BuildMessageContents = function(msg_buffer, pos) {
+	pos = this.EncodeInt (this.timer_request, msg_buffer, pos);
+	pos = this.EncodeInt (this.timer_ticks, msg_buffer, pos);
+    pos = this.EncodeInt (this.display_mode, msg_buffer, pos);
+    pos = this.EncodeInt (this.timer_precision, msg_buffer, pos);
+    pos = this.EncodeInt (this.fraction_threshold, msg_buffer, pos);
+    return pos;
+};
+DLTimerCmd.prototype.InitFromJson = function (element_json, cmd_json) {
+    this.layer = element_json.layer;
+    this.parent_control = element_json.control_id;
+    this.timer_request = cmd_json.timer_request;
+    this.timer_ticks = cmd_json.timer_ticks;
+    this.display_mode = cmd_json.timer_display_mode;
+    this.timer_precision = cmd_json.timer_precision;
+    this.fraction_threshold = cmd_json.fraction_threshold;
+};
 
 function CreateDLText () {
     return new DLText();
@@ -501,6 +593,10 @@ function CreateDLText () {
 
 function CreateDLTextbox () {
     return new DLTextbox();
+}
+
+function CreateDLTimer () {
+    return new DLTimer();
 }
 
 function CreateDLRect () {
@@ -519,12 +615,18 @@ function CreateDLDisplayCmd () {
 	return new DLDisplayCmd();
 }
 
+function CreateDLTimerCmd () {
+    return new DLTimerCmd();
+}
+
 module.exports.DLRect = CreateDLRect;
 module.exports.DLTextbox = CreateDLTextbox;
+module.exports.DLTimer = CreateDLTimer;
 module.exports.DLText = CreateDLText;
 module.exports.DLPanelDef = CreateDLPanelDef;
 module.exports.DLTextboxCmd = CreateDLTextboxCmd;
 module.exports.DLDisplayCmd = CreateDLDisplayCmd;
+module.exports.DLTimerCmd = CreateDLTimerCmd;
 module.exports.XYInfo = XYInfo;
 module.exports.DLColor = DLColor;
 module.exports.ObjectCategory = ObjectCategory;
